@@ -9,10 +9,10 @@ const Backend = union(enum) {
     gpu: gpu.Voronoi,
     cpu: cpu.Voronoi,
 
-    fn update(self: *Backend, centroids: []voronoi.Centroid) void {
+    fn update(self: *Backend, centroids: []voronoi.Centroid, chromatic_scale: f32) void {
         switch (self.*) {
             .gpu => |*b| b.update(centroids),
-            .cpu => |*b| b.update(centroids),
+            .cpu => |*b| b.update(centroids, chromatic_scale),
         }
     }
 
@@ -82,6 +82,21 @@ pub fn drawTexture(texture: rl.Texture2D, screen_width: i32, screen_height: i32)
     return rect;
 }
 
+const InputHandler = struct {
+    hadInput: bool = true,
+
+    fn isKeyPressed(self: *InputHandler, key: i32) bool {
+        const pressed = rl.IsKeyPressed(key);
+        self.hadInput = self.hadInput or pressed;
+        return pressed;
+    }
+
+    fn gotInput(self: *InputHandler) bool {
+        defer self.hadInput = false;
+        return self.hadInput;
+    }
+};
+
 pub fn main() !void {
     var args = std.process.args();
     _ = args.next();
@@ -116,17 +131,17 @@ pub fn main() !void {
     var rng = std.Random.DefaultPrng.init(@bitCast(std.time.milliTimestamp()));
     const random = rng.random();
 
-    const centroids = try allocator.alloc(voronoi.Centroid, k);
-    defer allocator.free(centroids);
+    var centroids = std.array_list.Managed(voronoi.Centroid).init(allocator);
+    defer centroids.deinit();
 
-    for (centroids) |*c| {
-        const x = random.uintLessThan(u32, @intCast(image.width));
-        const y = random.uintLessThan(u32, @intCast(image.height));
+    const chromatic_delta = 0.1;
+    var chromatic_scale: f32 = 1.0;
 
-        c.* = .{
-            .x = cast(f32, x) / cast(f32, image.width),
-            .y = cast(f32, y) / cast(f32, image.height),
-        };
+    for (0..k) |_| {
+        try centroids.append(.{
+            .x = random.float(f32),
+            .y = random.float(f32),
+        });
     }
 
     const ptr: [*]voronoi.Pixel = @ptrCast(image.data orelse return error.NullPointer);
@@ -148,14 +163,42 @@ pub fn main() !void {
     const width: usize = @intCast(image.width);
     const height: usize = @intCast(image.height);
 
+    var input_handler: InputHandler = .{};
+
     while (!rl.WindowShouldClose()) {
         if (rl.IsWindowResized()) {
             screen_width = rl.GetScreenWidth();
             screen_height = rl.GetScreenHeight();
         }
 
+        if (input_handler.isKeyPressed(rl.KEY_MINUS)) {
+            _ = centroids.pop();
+        }
+
+        if (input_handler.isKeyPressed(rl.KEY_EQUAL)) {
+            try centroids.append(.{
+                .x = random.float(f32),
+                .y = random.float(f32),
+            });
+        }
+
+        if (input_handler.isKeyPressed(rl.KEY_UP))
+            chromatic_scale += chromatic_delta;
+        if (input_handler.isKeyPressed(rl.KEY_DOWN))
+            chromatic_scale -= chromatic_delta;
+
+        if (input_handler.isKeyPressed(rl.KEY_R)) {
+            for (centroids.items) |*c| {
+                c.* = .{
+                    .x = random.float(f32),
+                    .y = random.float(f32),
+                };
+            }
+        }
+
         const start = try std.time.Instant.now();
-        backend.update(centroids);
+        if (input_handler.gotInput())
+            backend.update(centroids.items, chromatic_scale);
         const end = try std.time.Instant.now();
 
         time_samples[time_i] = end.since(start) / std.time.ns_per_ms;
@@ -168,24 +211,32 @@ pub fn main() !void {
 
         rl.ClearBackground(rl.RAYWHITE);
         const rect = drawTexture(backend.getTexture(), screen_width, screen_height);
-        for (centroids) |c| {
-            const pos: rl.Vector2 = .{ .x = rect.x + rect.width * c.x, .y = rect.y + rect.height * c.y };
-            const ix = cast(usize, c.x * cast(f32, width));
-            const iy = cast(usize, c.y * cast(f32, height));
-            const color = src_pixels[ix + iy * width];
-            rl.DrawCircleV(pos, 10, .{ .r = color.r, .g = color.g, .b = color.b, .a = color.a });
-            rl.DrawRing(pos, 8, 12, 0, 360, 16, rl.BLACK);
+        if (!rl.IsKeyDown(rl.KEY_SPACE)) {
+            for (centroids.items) |c| {
+                const pos: rl.Vector2 = .{ .x = rect.x + rect.width * c.x, .y = rect.y + rect.height * c.y };
+                const ix = cast(usize, c.x * cast(f32, width));
+                const iy = cast(usize, c.y * cast(f32, height));
+                const color = src_pixels[ix + iy * width];
+                rl.DrawCircleV(pos, 10, .{ .r = color.r, .g = color.g, .b = color.b, .a = color.a });
+                rl.DrawRing(pos, 8, 12, 0, 360, 16, rl.BLACK);
+            }
         }
 
         if (rl.IsKeyDown(rl.KEY_F)) {
             rl.DrawFPS(1, 1);
         }
-        else {
+        else if (rl.IsKeyDown(rl.KEY_T)) {
             var sum: u64 = 0;
             for (time_samples) |t|
                 sum += t;
             var writer = std.Io.Writer.fixed(&print_buffer);
             try writer.print("{} ms", .{sum / time_samples.len});
+            writer.buffer[writer.end] = 0;
+            rl.DrawText(writer.buffer.ptr, 1, 1, 32, rl.GREEN);
+        }
+        else {
+            var writer = std.Io.Writer.fixed(&print_buffer);
+            try writer.print("{}", .{chromatic_scale});
             writer.buffer[writer.end] = 0;
             rl.DrawText(writer.buffer.ptr, 1, 1, 32, rl.GREEN);
         }

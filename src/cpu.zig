@@ -34,6 +34,7 @@ const VoronoiArgs = struct {
     centroids: []Context,
     width: usize,
     height: usize,
+    chromatic_scale: f32,
     start_i: usize,
     end_i: usize,
 };
@@ -56,9 +57,9 @@ fn processVoronoi(args: VoronoiArgs) void {
             const context: Context = .{
                 .x = cast(f32, x) / w,
                 .y = cast(f32, y) / h,
-                .r = cast(f32, p.r) / 255,
-                .g = cast(f32, p.g) / 255,
-                .b = cast(f32, p.b) / 255,
+                .r = cast(f32, p.r) / 255 * args.chromatic_scale,
+                .g = cast(f32, p.g) / 255 * args.chromatic_scale,
+                .b = cast(f32, p.b) / 255 * args.chromatic_scale,
             };
 
             if (std.sort.min(Context, args.centroids, context, Context.lessThan)) |center| {
@@ -92,6 +93,7 @@ pub const Voronoi = struct {
     src_pixels: []voronoi.Pixel,
     width: usize,
     height: usize,
+    chromatic_scale: f32 = 1.0,
 
     pub fn init(image: rl.Image) !Voronoi {
         const jobs = std.Thread.getCpuCount() catch 1;
@@ -169,8 +171,9 @@ pub const Voronoi = struct {
         allocator.destroy(self.worker_args);
     }
 
-    pub fn update(self: *Voronoi, centroids: []voronoi.Centroid) void {
+    pub fn update(self: *Voronoi, centroids: []voronoi.Centroid, chromatic_scale: f32) void {
         self.context.clearRetainingCapacity();
+        self.chromatic_scale = chromatic_scale;
 
         for (centroids) |c| {
             const ix = cast(usize, c.x * cast(f32, self.width));
@@ -180,14 +183,15 @@ pub const Voronoi = struct {
             self.context.append(.{
                 .x = c.x,
                 .y = c.y,
-                .r = cast(f32, p.r) / 255,
-                .g = cast(f32, p.g) / 255,
-                .b = cast(f32, p.b) / 255,
+                .r = cast(f32, p.r) / 255 * chromatic_scale,
+                .g = cast(f32, p.g) / 255 * chromatic_scale,
+                .b = cast(f32, p.b) / 255 * chromatic_scale,
             }) catch @panic("OOM");
         }
 
         for (self.worker_args.args, self.worker_args.starters) |*a, *s| {
             a.centroids = self.context.items;
+            a.chromatic_scale = chromatic_scale;
             s.set();
         }
 

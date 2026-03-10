@@ -74,7 +74,7 @@ pub const Voronoi = struct {
         rl.rlEnableShader(self.program);
         rl.rlSetUniform(@bitCast(self.count), &len, rl.RL_SHADER_UNIFORM_UINT, 1);
         rl.rlComputeShaderDispatch(@intCast(@divTrunc(self.src_texture.width + 15, 16)), @intCast(@divTrunc(self.src_texture.height + 15, 16)), 1);
-        rl.glMemoryBarrier(rl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | rl.GL_BUFFER_UPDATE_BARRIER_BIT);
+        // rl.glMemoryBarrier(rl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | rl.GL_BUFFER_UPDATE_BARRIER_BIT);
     }
 
     pub fn getTexture(self: Voronoi) rl.Texture2D {

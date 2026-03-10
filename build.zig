@@ -14,7 +14,6 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
-    exe.root_module.addIncludePath(b.path("include"));
     exe.root_module.linkSystemLibrary("raylib", .{});
     exe.root_module.addAnonymousImport("shader", .{
         .root_source_file = b.path("voronoi.glsl"),

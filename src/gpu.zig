@@ -1,3 +1,4 @@
+const std = @import("std");
 const voronoi = @import("voronoi.zig");
 const rl = @import("c.zig").rl;
 
@@ -19,7 +20,9 @@ pub const Voronoi = struct {
     ssbo: GlHandle,
     shader: GlHandle,
     program: GlHandle,
-    count: GlHandle,
+    count_handle: GlHandle,
+    chromatic_scale_handle: GlHandle,
+    pixels: ?[]voronoi.Pixel,
 
     fn check_gl(id: anytype) void {
         if (id == 0)
@@ -50,8 +53,11 @@ pub const Voronoi = struct {
         const program = rl.rlLoadComputeShaderProgram(shader);
         check_gl(program);
 
-        const count = rl.rlGetLocationUniform(program, "count");
-        check_gl(count);
+        const count_handle = rl.rlGetLocationUniform(program, "count");
+        check_gl(count_handle);
+
+        const chromatic_scale_handle = rl.rlGetLocationUniform(program, "chromatic_scale");
+        check_gl(chromatic_scale_handle);
 
         return .{
             .src_texture = src_texture,
@@ -60,19 +66,29 @@ pub const Voronoi = struct {
             .ssbo = ssbo,
             .shader = shader,
             .program = program,
-            .count = @bitCast(count),
+            .count_handle = @bitCast(count_handle),
+            .chromatic_scale_handle = @bitCast(chromatic_scale_handle),
+            .pixels = null,
         };
     }
 
-    pub fn update(self: *Voronoi, centroids: []voronoi.Centroid) void {
-        if (centroids.len > self.centroid_cap)
-            @panic("TODO");
-
+    pub fn update(self: *Voronoi, centroids: []voronoi.Centroid, chromatic_scale: f32, debug: bool) void {
+        _ = debug;
         const len: u32 = @intCast(centroids.len);
+
+        if (len > self.centroid_cap) {
+            rl.rlUnloadShaderBuffer(self.ssbo);
+            self.ssbo = rl.rlLoadShaderBuffer(@intCast(len * @sizeOf(voronoi.Centroid)), null, rl.RL_DYNAMIC_DRAW);
+            check_gl(self.ssbo);
+            rl.rlBindShaderBuffer(self.ssbo, SHADER_BUFFER_INDEX);
+            self.centroid_cap = len;
+            std.log.info("Resized SSBO", .{});
+        }
 
         rl.rlUpdateShaderBuffer(self.ssbo, centroids.ptr, @intCast(len * @sizeOf(voronoi.Centroid)), 0);
         rl.rlEnableShader(self.program);
-        rl.rlSetUniform(@bitCast(self.count), &len, rl.RL_SHADER_UNIFORM_UINT, 1);
+        rl.rlSetUniform(@bitCast(self.count_handle), &len, rl.RL_SHADER_UNIFORM_UINT, 1);
+        rl.rlSetUniform(@bitCast(self.chromatic_scale_handle), &chromatic_scale, rl.RL_SHADER_UNIFORM_FLOAT, 1);
         rl.rlComputeShaderDispatch(@intCast(@divTrunc(self.src_texture.width + 15, 16)), @intCast(@divTrunc(self.src_texture.height + 15, 16)), 1);
         // rl.glMemoryBarrier(rl.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | rl.GL_BUFFER_UPDATE_BARRIER_BIT);
     }
@@ -81,7 +97,19 @@ pub const Voronoi = struct {
         return self.dst_texture;
     }
 
+    pub fn getPixels(self: *Voronoi) ![]voronoi.Pixel {
+        if (self.pixels) |p| rl.MemFree(p.ptr);
+
+        const ptr: [*]voronoi.Pixel = @ptrCast(rl.rlReadTexturePixels(self.dst_texture.id, self.src_texture.width, self.src_texture.height, self.src_texture.format) orelse return error.TextureReadFailed);
+        const len: usize = @intCast(self.src_texture.width * self.src_texture.height);
+        const slice = ptr[0..len];
+        self.pixels = slice;
+
+        return slice;
+    }
+
     pub fn deinit(self: Voronoi) void {
+        if (self.pixels) |p| rl.MemFree(p.ptr);
         rl.rlUnloadTexture(self.src_texture.id);
         rl.rlUnloadTexture(self.dst_texture.id);
         rl.rlUnloadShaderBuffer(self.ssbo);

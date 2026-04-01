@@ -6,6 +6,7 @@ const cast = voronoi.cast;
 const allocator = voronoi.allocator;
 
 const Context = struct {
+    i: usize = 0,
     x: f32,
     y: f32,
     r: f32,
@@ -28,47 +29,84 @@ const Context = struct {
     }
 };
 
-const VoronoiArgs = struct {
+const CommonArgs = struct {
     dst_pixels: []voronoi.Pixel,
     src_pixels: []voronoi.Pixel,
     centroids: []Context,
     width: usize,
     height: usize,
     chromatic_scale: f32,
+    debug: bool,
+};
+
+const VoronoiArgs = struct {
     start_i: usize,
     end_i: usize,
 };
 
-fn processVoronoi(args: VoronoiArgs) void {
-    var x = args.start_i % args.width;
-    var y = @divTrunc(args.start_i, args.width);
+const DEBUG_COLORS = [_]voronoi.Pixel{
+    .{ .r = 230 , .g = 41, .b = 55, .a = 255 },   // Red
+    .{ .r = 255 , .g = 161, .b = 0, .a = 255 },   // Orange
+    .{ .r = 253 , .g = 249, .b = 0, .a = 255 },   // Yellow
+    .{ .r = 0   , .g = 228, .b = 48, .a = 255 },  // Green
+    .{ .r = 0   , .g = 121, .b = 241, .a = 255 }, // Blue
+    .{ .r = 135 , .g = 60, .b = 190, .a = 255 },  // Violet
+    .{ .r = 130 , .g = 130, .b = 130, .a = 255 }, // Gray
+    .{ .r = 255 , .g = 255, .b = 255, .a = 255 }, // White
+    .{ .r = 0   , .g = 0, .b = 0, .a = 255 },     // Black
+    .{ .r = 190 , .g = 33, .b = 55, .a = 255 },   // Maroon
+    .{ .r = 127 , .g = 106, .b = 79, .a = 255 },  // Brown
+    .{ .r = 255 , .g = 203, .b = 0, .a = 255 },   // Gold
+    .{ .r = 0   , .g = 117, .b = 44, .a = 255 },  // Dark Green
+    .{ .r = 0   , .g = 82, .b = 172, .a = 255 },  // Dark Blue
+    .{ .r = 112 , .g = 31, .b = 126, .a = 255 },  // Dark Purple
+    .{ .r = 200 , .g = 200, .b = 200, .a = 255 }, // Light Gray
+    .{ .r = 255 , .g = 109, .b = 194, .a = 255 }, // Pink
+    .{ .r = 211 , .g = 176, .b = 131, .a = 255 }, // Beige
+    .{ .r = 0   , .g = 158, .b = 47, .a = 255 },  // Lime
+    .{ .r = 102 , .g = 191, .b = 255, .a = 255 }, // Sky Blue
+    .{ .r = 255 , .g = 0, .b = 255, .a = 255 },   // Magenta
+    .{ .r = 200 , .g = 122, .b = 255, .a = 255 }, // Purple
+    .{ .r = 76  , .g = 63, .b = 47, .a = 255 },   // Dark Brown
+    .{ .r = 80  , .g = 80, .b = 80, .a = 255 },   // Dark Gray
+    .{ .r = 245 , .g = 245, .b = 245, .a = 255 }, // Ray White
+};
 
-    const w = cast(f32, args.width);
-    const h = cast(f32, args.height);
+fn processVoronoi(args: VoronoiArgs, common: CommonArgs) void {
+    var x = args.start_i % common.width;
+    var y = @divTrunc(args.start_i, common.width);
+
+    const w = cast(f32, common.width);
+    const h = cast(f32, common.height);
 
     outer: while (true) : (y += 1) {
-        while (x < args.width) : (x += 1) {
-            const i = x + y * args.width;
+        while (x < common.width) : (x += 1) {
+            const i = x + y * common.width;
             if (i >= args.end_i)
                 break :outer;
 
-            const p = args.src_pixels[i];
+            const p = common.src_pixels[i];
 
             const context: Context = .{
                 .x = cast(f32, x) / w,
                 .y = cast(f32, y) / h,
-                .r = cast(f32, p.r) / 255 * args.chromatic_scale,
-                .g = cast(f32, p.g) / 255 * args.chromatic_scale,
-                .b = cast(f32, p.b) / 255 * args.chromatic_scale,
+                .r = cast(f32, p.r) / 255 * common.chromatic_scale,
+                .g = cast(f32, p.g) / 255 * common.chromatic_scale,
+                .b = cast(f32, p.b) / 255 * common.chromatic_scale,
             };
 
-            if (std.sort.min(Context, args.centroids, context, Context.lessThan)) |center| {
-                const cx = cast(usize, center.x * w);
-                const cy = cast(usize, center.y * h);
-                args.dst_pixels[i] = args.src_pixels[cx + cy * args.width];
+            if (std.sort.min(Context, common.centroids, context, Context.lessThan)) |center| {
+                if (common.debug) {
+                    common.dst_pixels[i] = DEBUG_COLORS[center.i];
+                }
+                else {
+                    const cx = cast(usize, center.x * w);
+                    const cy = cast(usize, center.y * h);
+                    common.dst_pixels[i] = common.src_pixels[cx + cy * common.width];
+                }
             }
             else {
-                args.dst_pixels[i] = args.src_pixels[i];
+                common.dst_pixels[i] = common.src_pixels[i];
             }
         }
 
@@ -77,6 +115,7 @@ fn processVoronoi(args: VoronoiArgs) void {
 }
 
 const WorkerArgs = struct {
+    common: CommonArgs,
     args: []VoronoiArgs,
     starters: []std.Thread.ResetEvent,
     enders: []std.Thread.ResetEvent,
@@ -97,6 +136,7 @@ pub const Voronoi = struct {
 
     pub fn init(image: rl.Image) !Voronoi {
         const jobs = std.Thread.getCpuCount() catch 1;
+        std.debug.print("Using {} threads\n", .{jobs});
 
         const args = try allocator.alloc(VoronoiArgs, jobs);
         const starters = try allocator.alloc(std.Thread.ResetEvent, jobs);
@@ -125,19 +165,17 @@ pub const Voronoi = struct {
             a.start_i = offset;
             offset += size;
             a.end_i = offset;
-
-            a.src_pixels = src_pixels;
-            a.dst_pixels = dst_pixels;
-            a.width = width;
-            a.height = height;
         }
 
-        worker_args.* = .{
-            .args = args,
-            .starters = starters,
-            .enders = enders,
-            .end = .{},
-        };
+        worker_args.common.src_pixels = src_pixels;
+        worker_args.common.dst_pixels = dst_pixels;
+        worker_args.common.width = width;
+        worker_args.common.height = height;
+        worker_args.common.debug = false;
+        worker_args.args = args;
+        worker_args.starters = starters;
+        worker_args.enders = enders;
+        worker_args.end = .{};
 
         for (0..jobs) |tid|
             threads[tid] = try std.Thread.spawn(.{}, Voronoi.worker, .{tid, worker_args});
@@ -171,7 +209,7 @@ pub const Voronoi = struct {
         allocator.destroy(self.worker_args);
     }
 
-    pub fn update(self: *Voronoi, centroids: []voronoi.Centroid, chromatic_scale: f32) void {
+    pub fn update(self: *Voronoi, centroids: []voronoi.Centroid, chromatic_scale: f32, debug: bool) void {
         self.context.clearRetainingCapacity();
         self.chromatic_scale = chromatic_scale;
 
@@ -181,6 +219,7 @@ pub const Voronoi = struct {
             const p = self.src_pixels[ix + iy * self.width];
 
             self.context.append(.{
+                .i = self.context.items.len,
                 .x = c.x,
                 .y = c.y,
                 .r = cast(f32, p.r) / 255 * chromatic_scale,
@@ -189,11 +228,12 @@ pub const Voronoi = struct {
             }) catch @panic("OOM");
         }
 
-        for (self.worker_args.args, self.worker_args.starters) |*a, *s| {
-            a.centroids = self.context.items;
-            a.chromatic_scale = chromatic_scale;
+        self.worker_args.common.centroids = self.context.items;
+        self.worker_args.common.chromatic_scale = chromatic_scale;
+        self.worker_args.common.debug = debug;
+
+        for (self.worker_args.starters) |*s|
             s.set();
-        }
 
         for (self.worker_args.enders) |*e| {
             e.wait();
@@ -207,6 +247,10 @@ pub const Voronoi = struct {
         return self.texture;
     }
 
+    pub fn getPixels(self: Voronoi) ![]voronoi.Pixel {
+        return self.dst_pixels;
+    }
+
     fn worker(tid: usize, args: *const WorkerArgs) void {
         while (true) {
             args.starters[tid].wait();
@@ -214,7 +258,7 @@ pub const Voronoi = struct {
                 break;
             args.starters[tid].reset();
 
-            processVoronoi(args.args[tid]);
+            processVoronoi(args.args[tid], args.common);
             args.enders[tid].set();
         }
     }

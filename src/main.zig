@@ -5,14 +5,16 @@ const rl = @import("c.zig").rl;
 const gpu = @import("gpu.zig");
 const cpu = @import("cpu.zig");
 
+const clap = @import("clap");
+
 const Backend = union(enum) {
     gpu: gpu.Voronoi,
     cpu: cpu.Voronoi,
 
-    fn update(self: *Backend, centroids: []voronoi.Centroid, chromatic_scale: f32) void {
+    fn update(self: *Backend, centroids: []voronoi.Centroid, chromatic_scale: f32, debug: bool) void {
         switch (self.*) {
-            .gpu => |*b| b.update(centroids),
-            .cpu => |*b| b.update(centroids, chromatic_scale),
+            .gpu => |*b| b.update(centroids, chromatic_scale, debug),
+            .cpu => |*b| b.update(centroids, chromatic_scale, debug),
         }
     }
 
@@ -97,19 +99,52 @@ const InputHandler = struct {
     }
 };
 
+const ARGS_MESSAGE =
+        \\-h, --help                    Display this help and exit
+        \\-k, --centroids <INT>         Number of centroids
+        \\-s, --chromatic_scale <FLOAT> Chromatic scale
+        \\-b, --backend   <BACKEND>     An option parameter which takes an enum
+        \\<PATH>
+;
+
 pub fn main() !void {
-    var args = std.process.args();
-    _ = args.next();
+    const params = comptime clap.parseParamsComptime(ARGS_MESSAGE);
 
-    const image_path = args.next() orelse return error.ArgumentMissing;
-    const k = try std.fmt.parseInt(usize, args.next() orelse return error.ArgumentMissing, 10);
-    const backend_opt = if (args.next()) |s| std.meta.stringToEnum(std.meta.Tag(Backend), s) orelse return error.InvalidOption else null;
+    const parsers = comptime .{
+        .PATH = clap.parsers.string,
+        .INT = clap.parsers.int(usize, 10),
+        .FLOAT = clap.parsers.float(f64),
+        .BACKEND = clap.parsers.enumeration(std.meta.Tag(Backend)),
+    };
 
-    const pixel_target_count = 200000;
+    var arg_iter = std.process.args();
+    _ = arg_iter.skip();
+    var diag = clap.Diagnostic{};
+    var res = clap.parseEx(clap.Help, &params, parsers, &arg_iter, .{
+        .diagnostic = &diag,
+        .allocator = allocator,
+        .assignment_separators = "=:",
+    }) catch |err| {
+        var writer = std.fs.File.stdout().writer(&.{});
+        try diag.report(&writer.interface, err);
+        try writer.end();
+        return err;
+    };
 
+    defer res.deinit();
+
+    if (res.args.help != 0) {
+        std.debug.print("{s}\n", .{ARGS_MESSAGE});
+        return;
+    }
+
+    // const pixel_target_count = 200000;
+
+    const image_path = try allocator.dupeZ(u8, res.positionals[0] orelse return error.PathMissing);
+    defer allocator.free(image_path);
     var image = rl.LoadImage(image_path);
     rl.ImageFormat(&image, rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-    scaleDownImage(&image, pixel_target_count);
+    // scaleDownImage(&image, pixel_target_count);
     defer rl.UnloadImage(image);
 
     var screen_width = image.width;
@@ -121,12 +156,15 @@ pub fn main() !void {
 
     rl.SetTargetFPS(60);
 
-    const useGpu = if (backend_opt) |b| switch (b) {
+    const useGpu = if (res.args.backend) |b| switch (b) {
         .gpu => true,
         .cpu => false,
     }
     else
         rl.rlGetVersion() == rl.RL_OPENGL_43;
+
+    const image_texture = rl.LoadTextureFromImage(image);
+    defer rl.UnloadTexture(image_texture);
 
     var rng = std.Random.DefaultPrng.init(@bitCast(std.time.milliTimestamp()));
     const random = rng.random();
@@ -134,10 +172,7 @@ pub fn main() !void {
     var centroids = std.array_list.Managed(voronoi.Centroid).init(allocator);
     defer centroids.deinit();
 
-    const chromatic_delta = 0.1;
-    var chromatic_scale: f32 = 1.0;
-
-    for (0..k) |_| {
+    for (0..res.args.centroids orelse 11) |_| {
         try centroids.append(.{
             .x = random.float(f32),
             .y = random.float(f32),
@@ -148,13 +183,17 @@ pub fn main() !void {
     const pixel_count: usize = @intCast(image.width * image.height);
     const src_pixels: []voronoi.Pixel = @ptrCast(ptr[0..pixel_count]);
 
+    const chromatic_delta = 0.1;
+    var chromatic_scale: f32 = @floatCast(res.args.chromatic_scale orelse voronoi.suggestChromaticScale(src_pixels));
+
     var backend: Backend = if (useGpu)
         .{ .gpu = try gpu.Voronoi.init(image) }
     else
         .{ .cpu = try cpu.Voronoi.init(image) };
     defer backend.deinit();
 
-    std.log.info("Using {s}\n", .{ @tagName(backend) });
+    std.log.info("Using {s}", .{@tagName(backend)});
+    std.log.info("s_ch = {}", .{chromatic_scale});
 
     var print_buffer: [64]u8 = undefined;
     var time_samples = std.mem.zeroes([16]u64);
@@ -163,6 +202,7 @@ pub fn main() !void {
     const width: usize = @intCast(image.width);
     const height: usize = @intCast(image.height);
 
+    var debug = false;
     var input_handler: InputHandler = .{};
 
     while (!rl.WindowShouldClose()) {
@@ -196,9 +236,12 @@ pub fn main() !void {
             }
         }
 
+        if (input_handler.isKeyPressed(rl.KEY_D))
+            debug = !debug;
+
         const start = try std.time.Instant.now();
         if (input_handler.gotInput())
-            backend.update(centroids.items, chromatic_scale);
+            backend.update(centroids.items, chromatic_scale, debug);
         const end = try std.time.Instant.now();
 
         time_samples[time_i] = end.since(start) / std.time.ns_per_ms;
@@ -210,7 +253,7 @@ pub fn main() !void {
         defer rl.EndDrawing();
 
         rl.ClearBackground(rl.RAYWHITE);
-        const rect = drawTexture(backend.getTexture(), screen_width, screen_height);
+        const rect = drawTexture(if (rl.IsKeyDown(rl.KEY_O)) image_texture else backend.getTexture(), screen_width, screen_height);
         if (!rl.IsKeyDown(rl.KEY_SPACE)) {
             for (centroids.items) |c| {
                 const pos: rl.Vector2 = .{ .x = rect.x + rect.width * c.x, .y = rect.y + rect.height * c.y };

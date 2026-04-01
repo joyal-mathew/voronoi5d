@@ -10,6 +10,7 @@ layout(std430, binding = 2) readonly buffer Centroids {
 } centroids;
 
 uniform uint count;
+uniform float chromatic_scale;
 
 void main() {
     ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
@@ -22,7 +23,7 @@ void main() {
     vec4 pixel = imageLoad(src_image, coords);
 
     vec4 best_pixel = vec4(0, 0, 0, 0);
-    float best_dist_sq = 10;
+    float best_dist_sq = 10.0;
 
     for (uint c = 0; c < 2 * count; c += 2) {
         float cx = centroids.data[c + 0];
@@ -31,9 +32,9 @@ void main() {
         vec4 src_pixel = imageLoad(src_image, c_coords);
         float dx = coords_norm.x - cx;
         float dy = coords_norm.y - cy;
-        float dr = pixel.r - src_pixel.r;
-        float dg = pixel.g - src_pixel.g;
-        float db = pixel.b - src_pixel.b;
+        float dr = (pixel.r - src_pixel.r) * chromatic_scale;
+        float dg = (pixel.g - src_pixel.g) * chromatic_scale;
+        float db = (pixel.b - src_pixel.b) * chromatic_scale;
 
         float dist_sq = dx * dx + dy * dy + dr * dr + dg * dg + db * db;
 

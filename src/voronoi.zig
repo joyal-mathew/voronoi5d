@@ -1,5 +1,5 @@
 const std = @import("std");
-const rl = @import("c.zig").rl;
+const rl = @import("rl");
 
 pub const allocator = std.heap.c_allocator;
 

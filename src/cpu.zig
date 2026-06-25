@@ -1,6 +1,6 @@
 const std = @import("std");
 const voronoi = @import("voronoi.zig");
-const rl = @import("c.zig").rl;
+const rl = @import("rl");
 
 const cast = voronoi.cast;
 const allocator = voronoi.allocator;
@@ -116,13 +116,15 @@ fn processVoronoi(args: VoronoiArgs, common: CommonArgs) void {
 
 const WorkerArgs = struct {
     common: CommonArgs,
+    io: std.Io,
     args: []VoronoiArgs,
-    starters: []std.Thread.ResetEvent,
-    enders: []std.Thread.ResetEvent,
-    end: std.Thread.ResetEvent,
+    starters: []std.Io.Event,
+    enders: []std.Io.Event,
+    end: std.Io.Event,
 };
 
 pub const Voronoi = struct {
+    io: std.Io,
     threads: []std.Thread,
     worker_args: *WorkerArgs,
     context: std.array_list.Managed(Context),
@@ -134,19 +136,19 @@ pub const Voronoi = struct {
     height: usize,
     chromatic_scale: f32 = 1.0,
 
-    pub fn init(image: rl.Image) !Voronoi {
+    pub fn init(io: std.Io, image: rl.Image) !Voronoi {
         const jobs = std.Thread.getCpuCount() catch 1;
         std.debug.print("Using {} threads\n", .{jobs});
 
         const args = try allocator.alloc(VoronoiArgs, jobs);
-        const starters = try allocator.alloc(std.Thread.ResetEvent, jobs);
-        const enders = try allocator.alloc(std.Thread.ResetEvent, jobs);
+        const starters = try allocator.alloc(std.Io.Event, jobs);
+        const enders = try allocator.alloc(std.Io.Event, jobs);
         const worker_args = try allocator.create(WorkerArgs);
 
         const threads = try allocator.alloc(std.Thread, jobs);
 
-        @memset(starters, .{});
-        @memset(enders, .{});
+        @memset(starters, .unset);
+        @memset(enders, .unset);
 
         const width: usize = @intCast(image.width);
         const height: usize = @intCast(image.height);
@@ -172,15 +174,17 @@ pub const Voronoi = struct {
         worker_args.common.width = width;
         worker_args.common.height = height;
         worker_args.common.debug = false;
+        worker_args.io = io;
         worker_args.args = args;
         worker_args.starters = starters;
         worker_args.enders = enders;
-        worker_args.end = .{};
+        worker_args.end = .unset;
 
         for (0..jobs) |tid|
             threads[tid] = try std.Thread.spawn(.{}, Voronoi.worker, .{tid, worker_args});
 
         return .{
+            .io = io,
             .threads = threads,
             .worker_args = worker_args,
             .context = .init(allocator),
@@ -194,9 +198,9 @@ pub const Voronoi = struct {
     }
 
     pub fn deinit(self: Voronoi) void {
-        self.worker_args.end.set();
+        self.worker_args.end.set(self.io);
         for (self.worker_args.starters) |*s|
-            s.set();
+            s.set(self.io);
         for (self.threads) |t|
             t.join();
 
@@ -233,10 +237,10 @@ pub const Voronoi = struct {
         self.worker_args.common.debug = debug;
 
         for (self.worker_args.starters) |*s|
-            s.set();
+            s.set(self.io);
 
         for (self.worker_args.enders) |*e| {
-            e.wait();
+            e.waitUncancelable(self.io);
             e.reset();
         }
 
@@ -253,13 +257,13 @@ pub const Voronoi = struct {
 
     fn worker(tid: usize, args: *const WorkerArgs) void {
         while (true) {
-            args.starters[tid].wait();
+            args.starters[tid].waitUncancelable(args.io);
             if (args.end.isSet())
                 break;
             args.starters[tid].reset();
 
             processVoronoi(args.args[tid], args.common);
-            args.enders[tid].set();
+            args.enders[tid].set(args.io);
         }
     }
 };

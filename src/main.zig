@@ -1,6 +1,6 @@
 const std = @import("std");
 const voronoi = @import("voronoi.zig");
-const rl = @import("c.zig").rl;
+const rl = @import("rl");
 
 const gpu = @import("gpu.zig");
 const cpu = @import("cpu.zig");
@@ -107,7 +107,7 @@ const ARGS_MESSAGE =
         \\<PATH>
 ;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     const params = comptime clap.parseParamsComptime(ARGS_MESSAGE);
 
     const parsers = comptime .{
@@ -117,15 +117,17 @@ pub fn main() !void {
         .BACKEND = clap.parsers.enumeration(std.meta.Tag(Backend)),
     };
 
-    var arg_iter = std.process.args();
-    _ = arg_iter.skip();
+    var args_iter = try init.minimal.args.iterateAllocator(init.gpa);
+    defer args_iter.deinit();
+    _ = args_iter.next();
+
     var diag = clap.Diagnostic{};
-    var res = clap.parseEx(clap.Help, &params, parsers, &arg_iter, .{
+    var res = clap.parseEx(clap.Help, &params, parsers, &args_iter, .{
         .diagnostic = &diag,
         .allocator = allocator,
         .assignment_separators = "=:",
     }) catch |err| {
-        var writer = std.fs.File.stdout().writer(&.{});
+        var writer = std.Io.File.stdout().writer(init.io, &.{});
         try diag.report(&writer.interface, err);
         try writer.end();
         return err;
@@ -166,7 +168,7 @@ pub fn main() !void {
     const image_texture = rl.LoadTextureFromImage(image);
     defer rl.UnloadTexture(image_texture);
 
-    var rng = std.Random.DefaultPrng.init(@bitCast(std.time.milliTimestamp()));
+    var rng = std.Random.DefaultPrng.init(@bitCast(std.Io.Timestamp.now(init.io, .awake).toMilliseconds()));
     const random = rng.random();
 
     var centroids = std.array_list.Managed(voronoi.Centroid).init(allocator);
@@ -189,7 +191,7 @@ pub fn main() !void {
     var backend: Backend = if (useGpu)
         .{ .gpu = try gpu.Voronoi.init(image) }
     else
-        .{ .cpu = try cpu.Voronoi.init(image) };
+        .{ .cpu = try cpu.Voronoi.init(init.io, image) };
     defer backend.deinit();
 
     std.log.info("Using {s}", .{@tagName(backend)});
@@ -239,12 +241,11 @@ pub fn main() !void {
         if (input_handler.isKeyPressed(rl.KEY_D))
             debug = !debug;
 
-        const start = try std.time.Instant.now();
+        const start = std.Io.Timestamp.now(init.io, .awake);
         if (input_handler.gotInput())
             backend.update(centroids.items, chromatic_scale, debug);
-        const end = try std.time.Instant.now();
 
-        time_samples[time_i] = end.since(start) / std.time.ns_per_ms;
+        time_samples[time_i] = @intCast(start.untilNow(init.io, .awake).toMilliseconds());
         time_i += 1;
         if (time_i >= time_samples.len)
             time_i = 0;

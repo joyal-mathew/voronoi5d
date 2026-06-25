@@ -4,13 +4,45 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const c = b.addTranslateC(.{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/c.h"),
+    });
+
+    c.linkSystemLibrary("glad", .{});
+    c.linkSystemLibrary("egl", .{});
+    c.linkSystemLibrary("png", .{});
+    c.linkSystemLibrary("jpeg", .{});
+
+    const rl = b.addTranslateC(.{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/rl.h"),
+    });
+
+    rl.linkSystemLibrary("X11", .{});
+    rl.linkSystemLibrary("raylib", .{});
+
+    const clap = b.dependency("clap", .{});
+
+    const shader = b.path("src/voronoi.glsl");
+
     const exe = b.addExecutable(.{
         .name = "voronoi",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "rl", .module = rl.createModule() },
+            },
         }),
+    });
+
+    exe.root_module.addImport("clap", clap.module("clap"));
+    exe.root_module.addAnonymousImport("shader", .{
+        .root_source_file = shader,
     });
 
     const cli = b.addExecutable(.{
@@ -19,49 +51,19 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/cli.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "c", .module = c.createModule() },
+            },
         })
     });
 
-    const cli2 = b.addExecutable(.{
-        .name = "cli2",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/cli2.zig"),
-            .target = target,
-            .optimize = optimize,
-        })
-    });
-
-    const clap = b.dependency("clap", .{});
-
-    exe.linkLibC();
-    exe.root_module.linkSystemLibrary("raylib", .{});
-    exe.root_module.addImport("clap", clap.module("clap"));
-    exe.root_module.addAnonymousImport("shader", .{
-        .root_source_file = b.path("voronoi.glsl"),
-    });
-
-    cli.linkLibC();
-    cli.root_module.linkSystemLibrary("raylib", .{});
     cli.root_module.addImport("clap", clap.module("clap"));
     cli.root_module.addAnonymousImport("shader", .{
-        .root_source_file = b.path("voronoi.glsl"),
-    });
-
-    cli2.linkLibC();
-    cli2.root_module.addImport("clap", clap.module("clap"));
-    cli2.root_module.addLibraryPath(b.path("glad/lib"));
-    cli2.root_module.addIncludePath(b.path("glad/include/"));
-    cli2.root_module.linkSystemLibrary("glad", .{});
-    cli2.root_module.linkSystemLibrary("egl", .{});
-    cli2.root_module.linkSystemLibrary("png", .{});
-    cli2.root_module.linkSystemLibrary("jpeg", .{});
-    cli2.root_module.addAnonymousImport("shader", .{
-        .root_source_file = b.path("voronoi.glsl"),
+        .root_source_file = shader,
     });
 
     b.installArtifact(exe);
     b.installArtifact(cli);
-    b.installArtifact(cli2);
 
     const run_step = b.step("run", "Run the app");
 

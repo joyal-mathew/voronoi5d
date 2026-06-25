@@ -1,6 +1,6 @@
 const std = @import("std");
 const voronoi = @import("voronoi.zig");
-const rl = @import("c.zig").rl;
+const rl = @import("rl");
 
 const cast = voronoi.cast;
 
@@ -48,9 +48,9 @@ pub const Voronoi = struct {
         check_gl(ssbo);
         rl.rlBindShaderBuffer(ssbo, SHADER_BUFFER_INDEX);
 
-        const shader = rl.rlCompileShader(SHADER_CODE, rl.RL_COMPUTE_SHADER);
+        const shader = rl.rlLoadShader(SHADER_CODE, rl.RL_COMPUTE_SHADER);
         check_gl(shader);
-        const program = rl.rlLoadComputeShaderProgram(shader);
+        const program = rl.rlLoadShaderProgramCompute(shader);
         check_gl(program);
 
         const count_handle = rl.rlGetLocationUniform(program, "count");

@@ -14,6 +14,10 @@ pub fn build(b: *std.Build) void {
     c.linkSystemLibrary("egl", .{});
     c.linkSystemLibrary("png", .{});
     c.linkSystemLibrary("jpeg", .{});
+    c.linkSystemLibrary("avcodec", .{});
+    c.linkSystemLibrary("avformat", .{});
+    c.linkSystemLibrary("swscale", .{});
+    c.linkSystemLibrary("avutil", .{});
 
     const rl = b.addTranslateC(.{
         .target = target,
@@ -67,7 +71,7 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the app");
 
-    const run_cmd = b.addRunArtifact(exe);
+    const run_cmd = b.addRunArtifact(cli);
     run_step.dependOn(&run_cmd.step);
 
     run_cmd.step.dependOn(b.getInstallStep());

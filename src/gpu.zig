@@ -7,12 +7,12 @@ const cast = voronoi.cast;
 const GlHandle = u32;
 
 pub const Voronoi = struct {
-    const SHADER_CODE = @embedFile("shader");
+    const shader_code = @embedFile("shader");
 
-    const SRC_TEXTURE_INDEX = 0;
-    const DST_TEXTURE_INDEX = 1;
-    const SHADER_BUFFER_INDEX = 2;
-    const INIT_CENTROID_CAP = 16;
+    const src_texture_index = 0;
+    const dst_texture_index = 1;
+    const shader_buffer_index = 2;
+    const init_centroid_cap = 16;
 
     src_texture: rl.Texture,
     dst_texture: rl.Texture,
@@ -41,14 +41,14 @@ pub const Voronoi = struct {
         };
         check_gl(dst_texture.id);
 
-        rl.rlBindImageTexture(src_texture.id, SRC_TEXTURE_INDEX, src_texture.format, true);
-        rl.rlBindImageTexture(dst_texture.id, DST_TEXTURE_INDEX, dst_texture.format, false);
+        rl.rlBindImageTexture(src_texture.id, src_texture_index, src_texture.format, true);
+        rl.rlBindImageTexture(dst_texture.id, dst_texture_index, dst_texture.format, false);
 
-        const ssbo = rl.rlLoadShaderBuffer(@intCast(INIT_CENTROID_CAP * @sizeOf(voronoi.Centroid)), null, rl.RL_DYNAMIC_DRAW);
+        const ssbo = rl.rlLoadShaderBuffer(@intCast(init_centroid_cap * @sizeOf(voronoi.Centroid)), null, rl.RL_DYNAMIC_DRAW);
         check_gl(ssbo);
-        rl.rlBindShaderBuffer(ssbo, SHADER_BUFFER_INDEX);
+        rl.rlBindShaderBuffer(ssbo, shader_buffer_index);
 
-        const shader = rl.rlLoadShader(SHADER_CODE, rl.RL_COMPUTE_SHADER);
+        const shader = rl.rlLoadShader(shader_code, rl.RL_COMPUTE_SHADER);
         check_gl(shader);
         const program = rl.rlLoadShaderProgramCompute(shader);
         check_gl(program);
@@ -62,7 +62,7 @@ pub const Voronoi = struct {
         return .{
             .src_texture = src_texture,
             .dst_texture = dst_texture,
-            .centroid_cap = INIT_CENTROID_CAP,
+            .centroid_cap = init_centroid_cap,
             .ssbo = ssbo,
             .shader = shader,
             .program = program,
@@ -80,7 +80,7 @@ pub const Voronoi = struct {
             rl.rlUnloadShaderBuffer(self.ssbo);
             self.ssbo = rl.rlLoadShaderBuffer(@intCast(len * @sizeOf(voronoi.Centroid)), null, rl.RL_DYNAMIC_DRAW);
             check_gl(self.ssbo);
-            rl.rlBindShaderBuffer(self.ssbo, SHADER_BUFFER_INDEX);
+            rl.rlBindShaderBuffer(self.ssbo, shader_buffer_index);
             self.centroid_cap = len;
             std.log.info("Resized SSBO", .{});
         }

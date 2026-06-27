@@ -99,7 +99,7 @@ const InputHandler = struct {
     }
 };
 
-const ARGS_MESSAGE =
+const args_message =
         \\-h, --help                    Display this help and exit
         \\-k, --centroids <INT>         Number of centroids
         \\-s, --chromatic_scale <FLOAT> Chromatic scale
@@ -108,7 +108,7 @@ const ARGS_MESSAGE =
 ;
 
 pub fn main(init: std.process.Init) !void {
-    const params = comptime clap.parseParamsComptime(ARGS_MESSAGE);
+    const params = comptime clap.parseParamsComptime(args_message);
 
     const parsers = comptime .{
         .PATH = clap.parsers.string,
@@ -136,7 +136,7 @@ pub fn main(init: std.process.Init) !void {
     defer res.deinit();
 
     if (res.args.help != 0) {
-        std.debug.print("{s}\n", .{ARGS_MESSAGE});
+        std.debug.print("{s}\n", .{args_message});
         return;
     }
 
@@ -186,7 +186,7 @@ pub fn main(init: std.process.Init) !void {
     const src_pixels: []voronoi.Pixel = @ptrCast(ptr[0..pixel_count]);
 
     const chromatic_delta = 0.1;
-    var chromatic_scale: f32 = @floatCast(res.args.chromatic_scale orelse voronoi.suggestChromaticScale(src_pixels));
+    var chromatic_scale: f32 = @floatCast(res.args.chromatic_scale orelse voronoi.suggestChromaticScale(voronoi.Pixel, src_pixels));
 
     var backend: Backend = if (useGpu)
         .{ .gpu = try gpu.Voronoi.init(image) }

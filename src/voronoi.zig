@@ -10,6 +10,12 @@ pub const Pixel = struct {
     a: u8,
 };
 
+pub const PixelRgb = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
 pub const Centroid = struct {
     x: f32,
     y: f32,
@@ -32,7 +38,7 @@ pub fn cast(T: type, x: anytype) T {
     });
 }
 
-pub fn suggestChromaticScale(pixels: []const Pixel) f64 {
+pub fn suggestChromaticScale(T: type, pixels: []const T) f64 {
     const Vec = @Vector(3, f64);
 
     var total: Vec = @splat(0);

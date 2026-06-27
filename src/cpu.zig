@@ -44,7 +44,7 @@ const VoronoiArgs = struct {
     end_i: usize,
 };
 
-const DEBUG_COLORS = [_]voronoi.Pixel{
+const debug_colors = [_]voronoi.Pixel{
     .{ .r = 230 , .g = 41, .b = 55, .a = 255 },   // Red
     .{ .r = 255 , .g = 161, .b = 0, .a = 255 },   // Orange
     .{ .r = 253 , .g = 249, .b = 0, .a = 255 },   // Yellow
@@ -97,7 +97,7 @@ fn processVoronoi(args: VoronoiArgs, common: CommonArgs) void {
 
             if (std.sort.min(Context, common.centroids, context, Context.lessThan)) |center| {
                 if (common.debug) {
-                    common.dst_pixels[i] = DEBUG_COLORS[center.i];
+                    common.dst_pixels[i] = debug_colors[center.i];
                 }
                 else {
                     const cx = cast(usize, center.x * w);
